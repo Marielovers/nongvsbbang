@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>시선 트래킹 이상형 월드컵</title>
+    <style>
+        @font-face { font-family: 'Pretendard'; src: local('Malgun Gothic'); }
+        body {
+            margin: 0; padding: 0; font-family: 'Pretendard', sans-serif;
+            background-color: #f4f6f9; overflow: hidden; user-select: none; color: #2c3e50;
+        }
+        #trailCanvas {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            pointer-events: none; z-index: 9999;
+        }
+        .screen {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+        }
+        .screen.active { display: flex; }
+
+        /* 공통 UI 요소 */
+        .title-text { font-size: 64px; font-weight: 900; color: #2c3e50; margin-bottom: 10px; letter-spacing: -2px; }
+        .sub-text { font-size: 22px; color: #7f8c8d; margin-bottom: 30px; font-weight: 500; }
+        .btn {
+            padding: 16px 40px; font-size: 24px; font-weight: 800; letter-spacing: -1px;
+            color: white; border: none; border-radius: 50px; cursor: pointer;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1); transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+            margin: 10px;
+        }
+        .btn:hover { transform: translateY(-5px); box-shadow: 0 15px 25px rgba(0,0,0,0.15); }
+        .btn-start { background: linear-gradient(135deg, #11998e, #38ef7d); }
+        .btn-calib { background: linear-gradient(135deg, #2980b9, #6dd5ed); position: absolute; bottom: 30px; left: 30px; font-size: 18px; padding: 12px 24px; }
+        
+        #vtsStatus { position: absolute; top: 30px; font-size: 18px; font-weight: 800; background: white; padding: 10px 20px; border-radius: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+
+        /* 설정 컨테이너 */
+        .settings-box {
+            background: white; padding: 15px 35px; border-radius: 50px; 
+            box-shadow: 0 5px 15px rgba(0,0,0,0.05); margin-bottom: 40px;
+            display: flex; align-items: center; gap: 15px;
+        }
+        .settings-box select {
+            font-size: 20px; font-weight: 800; padding: 10px 20px; border-radius: 15px;
+            border: 2px solid #bdc3c7; outline: none; cursor: pointer; color: #34495e;
+        }
+
+        /* 캘리브레이션 */
+        #calibScreen { background-color: #1e272e; color: white; }
+        #calibDot {
+            position: absolute; width: 80px; height: 80px;
+            background-color: #0be881; border-radius: 50%;
+            transform: translate(-50%, -50%); transition: all 0.2s ease-out;
+            box-shadow: 0 0 30px rgba(11, 232, 129, 0.6);
+        }
+        #calibText { font-size: 34px; font-weight: 800; position: absolute; top: 20%; }
+        #calibProgress { font-size: 22px; color: #808e9b; position: absolute; top: 28%; }
+
+        /* 게임 화면 */
+        .match-info { position: absolute; top: 40px; font-size: 36px; font-weight: 900; color: #2c3e50; background: white; padding: 10px 30px; border-radius: 50px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
+        .vs-text { position: absolute; font-size: 100px; font-weight: 900; color: #ff4757; top: 50%; transform: translateY(-50%); z-index: 10; text-shadow: 0 10px 20px rgba(255, 71, 87, 0.3); transition: 0.3s; }
+        .images-container { display: flex; width: 100%; justify-content: space-around; align-items: center; height: 100%; padding-top: 30px; }
+        
+        .img-wrapper { 
+            display: flex; flex-direction: column; align-items: center; 
+            padding: 20px; border-radius: 30px; cursor: pointer; 
+            background: white; box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative;
+        }
+
+        /* 💡 추가된 박스 덮개 (가로를 강제로 자르는 액자 역할) */
+        .img-box {
+            width: 400px; height: 500px; 
+            border-radius: 20px; overflow: hidden;
+            display: flex; justify-content: center; align-items: flex-start;
+        }
+        
+        /* 💡 이미지는 세로 500px에 완벽하게 맞춤 */
+        .img-box img { 
+            height: 500px; width: auto; max-width: none; 
+            transition: 0.3s; 
+        }
+        
+        .img-name { font-size: 32px; font-weight: 900; margin-top: 25px; color: #2c3e50; }
+        
+        /* 호버 시 이미지만 살짝 커지는 효과 */
+        .img-wrapper.hovered .img-box img { transform: scale(1.05); }
+        .img-wrapper.hovered { box-shadow: 0 20px 50px rgba(255, 195, 18, 0.4); border: 4px solid #ffc312; }
+        
+        .winner-focus {
+            position: fixed !important; top: 50% !important; left: 50% !important;
+            transform: translate(-50%, -50%) scale(1.3) !important;
+            z-index: 1000 !important; box-shadow: 0 30px 60px rgba(0,0,0,0.3) !important;
+            border: 8px solid #0be881 !important;
+        }
+
+        /* 결과 화면 & 💡 우승자 이미지 박스 처리 */
+        .result-title { font-size: 60px; font-weight: 900; color: #ffa502; margin-bottom: 20px; text-shadow: 0 4px 10px rgba(255, 165, 2, 0.3); }
+        .result-box {
+            width: 350px; height: 450px; margin-bottom: 20px;
+            border-radius: 25px; overflow: hidden;
+            box-shadow: 0 15px 30px rgba(0,0,0,0.2);
+            display: flex; justify-content: center; align-items: flex-start;
+        }
+        .result-box img { height: 450px; width: auto; max-width: none; }
+        .winner-name { font-size: 40px; font-weight: 900; color: #2c3e50; margin-bottom: 20px; }
+
+        .stats-container { width: 900px; max-width: 90%; position: relative; max-height: 80vh; overflow-y: auto; padding: 20px; }
+        .stats-container::-webkit-scrollbar { width: 8px; }
+        .stats-container::-webkit-scrollbar-thumb { background-color: #bdc3c7; border-radius: 10px; }
+
+        .stats-table { width: 100%; border-collapse: collapse; background: white; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.08); margin-bottom: 20px; }
+        .stats-table th { background: #2f3542; color: white; padding: 15px; font-size: 20px; }
+        .stats-table td { padding: 15px; text-align: center; border-bottom: 1px solid #f1f2f6; font-size: 18px; font-weight: 700; color: #57606f; transition: all 0.3s; }
+        
+        .data-row { opacity: 0; transform: translateY(20px); transition: all 0.5s cubic-bezier(0.25, 0.8, 0.25, 1); }
+        .data-row.show { opacity: 1; transform: translateY(0); }
+        
+        .stats-table td.highlight { color: #e84118; font-size: 20px; font-weight: 900; background-color: rgba(255, 195, 18, 0.2); }
+
+        .stamp {
+            position: absolute; top: 40%; left: 50%;
+            font-size: 90px; font-weight: 900; color: #ff4757;
+            border: 12px solid #ff4757; border-radius: 30px;
+            padding: 20px 60px; pointer-events: none; z-index: 2000;
+            transform: translate(-50%, -50%) scale(5); opacity: 0;
+            text-shadow: 0 0 20px rgba(255, 71, 87, 0.5);
+            box-shadow: inset 0 0 20px rgba(255, 71, 87, 0.5), 0 0 30px rgba(255, 71, 87, 0.5);
+        }
+        .stamp.animate { animation: stamp-in 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+        
+        @keyframes stamp-in {
+            0% { transform: translate(-50%, -50%) scale(4) rotate(-20deg); opacity: 0; }
+            50% { transform: translate(-50%, -50%) scale(0.8) rotate(-10deg); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(1) rotate(-15deg); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="trailCanvas"></canvas>
+
+    <div id="titleScreen" class="screen active">
+        <div id="vtsStatus" style="color: #ff4757;">VTS 연결 대기 중... (마우스로도 진행 가능)</div>
+        <div class="title-text">빵 vs 농 월드컵</div>
+        <div class="sub-text">시선을 추적하여 당신의 진짜 무의식을 정밀 분석합니다</div>
+        
+        <div class="settings-box">
+            <span style="font-size: 22px; font-weight: 800; color: #2c3e50;">진행할 라운드: </span>
+            <select id="roundSelect">
+                <option value="48">48강</option>
+                <option value="32">32강</option>
+                <option value="16">16강</option>
+                <option value="8">8강</option>
+                <option value="4">4강</option>
+                <option value="2">결승전 (2강)</option>
+            </select>
+        </div>
+
+        <button class="btn btn-start" onclick="startGame()">게임 바로 시작</button>
+        <button class="btn btn-calib" onclick="startCalibration()">⚙️ 시선 보정 (9점)</button>
+    </div>
+
+    <div id="calibScreen" class="screen">
+        <div id="calibText">녹색 원을 2초간 응시하세요.</div>
+        <div id="calibProgress">진행도: 0 / 9</div>
+        <div id="calibDot"></div>
+    </div>
+
+    <div id="gameScreen" class="screen">
+        <div class="match-info" id="matchInfo">48강</div>
+        <div class="vs-text" id="vsText">VS</div>
+        <div class="images-container">
+            <div class="img-wrapper" id="leftWrapper" onclick="selectWinner('LEFT')">
+                <div class="img-box"><img id="leftImg" src=""></div>
+                <div class="img-name" id="leftName">이름</div>
+            </div>
+            <div class="img-wrapper" id="rightWrapper" onclick="selectWinner('RIGHT')">
+                <div class="img-box"><img id="rightImg" src=""></div>
+                <div class="img-name" id="rightName">이름</div>
+            </div>
+        </div>
+        <div class="inst-text" style="position:absolute; bottom:40px; font-size:24px; font-weight:800; color:#2c3e50; background:white; padding:10px 30px; border-radius:30px; box-shadow:0 5px 15px rgba(0,0,0,0.05);">
+            마음에 드는 이미지를 쳐다본 상태로 고개를 끄덕이거나, 직접 클릭하세요!
+        </div>
+    </div>
+
+    <div id="resultScreen" class="screen">
+        <div class="result-title">🏆 최종 우승 🏆</div>
+        <div class="result-box"><img id="winnerImg" src=""></div>
+        <div class="winner-name" id="winnerName">이름 (타입)</div>
+        <button class="btn" style="background: linear-gradient(135deg, #8e44ad, #9b59b6);" onclick="showStatsScreen()">무의식 분석 결과 보기 ▶</button>
+    </div>
+
+    <div id="statsScreen" class="screen">
+        <div class="result-title" style="font-size: 46px; margin-bottom: 10px;">📊 무의식 정밀 분석 결과</div>
+        <div id="statsContent" class="stats-container"></div>
+        <button id="restartBtn" class="btn btn-start" style="margin-bottom: 30px; opacity: 0; transition: 0.5s;" onclick="location.reload()">처음으로 돌아가기</button>
+    </div>
+
+<script>
+    let appState = "TITLE"; 
+    let imagesData = [];
+    let currentRoundPairs = [];
+    let nextRoundPairs = [];
+    let leftItem = null;
+    let rightItem = null;
+    
+    let currentStageTotal = 0; 
+    
+    let stats = {
+        '빵': { time: 0, smile: 0, blink: 0, browRaise: 0, volSum: 0, freqSum: 0, frameCount: 0, pingPong: 0, tffSum: 0, tffCount: 0, angleZSum: 0, parts: { face: 0, chest: 0, legs: 0 } },
+        '농': { time: 0, smile: 0, blink: 0, browRaise: 0, volSum: 0, freqSum: 0, frameCount: 0, pingPong: 0, tffSum: 0, tffCount: 0, angleZSum: 0, parts: { face: 0, chest: 0, legs: 0 } }
+    };
+    
+    let matchStartTime = 0;
+    let matchFirstLook = { LEFT: false, RIGHT: false };
+    let lastLookingDir = "CENTER";
+    let prevBlink = false, prevSmile = false, prevBrow = false, prevNod = false;
+    let lastTrackTime = performance.now();
+    let trail = [];
+    let smoothX = 0, smoothY = 0;
+    const smoothingFactor = 0.15;
+    let isTransitioning = false; 
+
+    let vts = { 
+        ws: null, authenticated: false, trackingMode: "연결 안 됨 (마우스 클릭 모드)", 
+        eyeX: 0, eyeY: 0, eyeLOpen: 1, eyeROpen: 1,
+        mouthSmile: 0, browY: 0, voiceVol: 0, voiceFreq: 0, faceZ: 0, faceY: 0
+    };
+
+    const calibSteps = ["TopLeft", "TopCenter", "TopRight", "MiddleLeft", "Center", "MiddleRight", "BottomLeft", "BottomCenter", "BottomRight"];
+    const defaultCalibData = {
+        TopLeft: {x: -1, y: 1}, TopCenter: {x: 0, y: 1}, TopRight: {x: 1, y: 1},
+        MiddleLeft: {x: -1, y: 0}, Center: {x: 0, y: 0}, MiddleRight: {x: 1, y: 0},
+        BottomLeft: {x: -1, y: -1}, BottomCenter: {x: 0, y: -1}, BottomRight: {x: 1, y: -1}
+    };
+    
+    let calibData = defaultCalibData;
+    try {
+        let saved = JSON.parse(localStorage.getItem('vts_calib_9pt'));
+        if (saved && saved.TopLeft && typeof saved.TopLeft.x === "number") {
+            calibData = saved;
+        } else {
+            localStorage.removeItem('vts_calib_9pt'); 
+        }
+    } catch(e) {
+        localStorage.removeItem('vts_calib_9pt'); 
+    }
+
+    let currentCalibIdx = 0;
+    let calibSamplesX = [], calibSamplesY = [];
+    let calibStartTime = 0;
+
+    // VTS 통신 
+    function connectVTS() {
+        try {
+            vts.ws = new WebSocket("ws://localhost:8001");
+            
+            vts.ws.onopen = () => {
+                let token = localStorage.getItem("vts_token");
+                if (!token) vts.ws.send(JSON.stringify({apiName: "VTubeStudioPublicAPI", apiVersion: "1.0", requestID: "AuthToken", messageType: "AuthenticationTokenRequest", data: { pluginName: "Eye Worldcup Web", pluginDeveloper: "Dev" }}));
+                else vts.ws.send(JSON.stringify({apiName: "VTubeStudioPublicAPI", apiVersion: "1.0", requestID: "Auth", messageType: "AuthenticationRequest", data: { pluginName: "Eye Worldcup Web", pluginDeveloper: "Dev", authenticationToken: token }}));
+            };
+            vts.ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.messageType === "AuthenticationTokenResponse") { 
+                        localStorage.setItem("vts_token", msg.data.authenticationToken); 
+                        connectVTS(); 
+                    }
+                    else if (msg.messageType === "AuthenticationResponse") {
+                        if (msg.data.authenticated) {
+                            vts.authenticated = true;
+                            let st = document.getElementById("vtsStatus");
+                            if(st) st.style.color = "#2ed573";
+                            setInterval(() => {
+                                if(vts.ws.readyState === WebSocket.OPEN) {
+                                    vts.ws.send(JSON.stringify({apiName: "VTubeStudioPublicAPI", apiVersion: "1.0", requestID: "Live2D", messageType: "Live2DParameterListRequest"}));
+                                }
+                            }, 1000 / 60);
+                        } else {
+                            localStorage.removeItem("vts_token");
+                            vts.ws.close(); 
+                        }
+                    }
+                    else if (msg.messageType === "Live2DParameterListResponse") {
+                        let faceX=0, faceY=0, faceZ=0, eyeX=0, eyeY=0, browL=0, browR=0;
+                        msg.data.parameters.forEach(p => {
+                            let n = p.name.toLowerCase(), v = p.value;
+                            if (n === "paramanglex" || n === "anglex") faceX = v;
+                            else if (n === "paramangley" || n === "angley") faceY = v;
+                            else if (n === "paramanglez" || n === "anglez") faceZ = v;
+                            else if (n === "parameyeballx" || n === "eyeballx") eyeX = v;
+                            else if (n === "parameyebally" || n === "eyebally") eyeY = v;
+                            else if (n === "parameyelopen" || n === "eyelopen") vts.eyeLOpen = v;
+                            else if (n === "parameyeropen" || n === "eyeropen") vts.eyeROpen = v;
+                            else if (n === "parammouthsmile" || n === "mouthsmile") vts.mouthSmile = v;
+                            else if (n === "parambrowly" || n === "browlefty") browL = v;
+                            else if (n === "parambrowry" || n === "browrighty") browR = v;
+                            else if (n === "voicevolume") vts.voiceVol = v;
+                            else if (n === "voicefrequency") vts.voiceFreq = v;
+                        });
+                        
+                        vts.browY = (browL + browR) / 2.0;
+                        vts.faceZ = faceZ;
+                        vts.faceY = faceY; 
+
+                        let baseX = (faceX / 30.0) + eyeX, baseY = (faceY / 30.0) + eyeY;
+                        let zRad = faceZ * (Math.PI / 180.0);
+                        vts.eyeX = baseX * Math.cos(zRad) - baseY * Math.sin(zRad);
+                        vts.eyeY = baseX * Math.sin(zRad) + baseY * Math.cos(zRad);
+                        vts.trackingMode = "수집 및 정밀 추적 중";
+                        
+                        if (appState === "TITLE") {
+                            let st = document.getElementById("vtsStatus");
+                            if(st) st.innerText = `VTS 통신 정상 [${vts.trackingMode}]`;
+                        }
+                    }
+                } catch(err) {} 
+            };
+            vts.ws.onclose = () => {
+                vts.authenticated = false;
+                let st = document.getElementById("vtsStatus");
+                if(st) {
+                    st.style.color = "#ff4757"; 
+                    st.innerText = "VTS 연결 대기 중... (마우스로도 진행 가능)";
+                }
+                setTimeout(connectVTS, 3000);
+            };
+        } catch(e) {
+            setTimeout(connectVTS, 3000);
+        }
+    }
+    connectVTS();
+
+    // 게임 시작
+    function startGame() {
+        let selectedRound = parseInt(document.getElementById("roundSelect").value);
+
+        fetch('image_list.json')
+            .then(res => res.json())
+            .then(data => {
+                let bList = [], nList = [];
+                const processList = (files, type, targetArr) => {
+                    files.forEach(path => {
+                        let name = path.split('/').pop().split('.')[0].split('_')[0];
+                        targetArr.push({ url: path, type: type, name: name });
+                    });
+                };
+                if (data["빵"]) processList(data["빵"], "빵", bList);
+                if (data["농"]) processList(data["농"], "농", nList);
+
+                bList.sort(() => Math.random() - 0.5);
+                nList.sort(() => Math.random() - 0.5);
+
+                let targetHalf = selectedRound / 2;
+                bList = bList.slice(0, targetHalf);
+                nList = nList.slice(0, targetHalf);
+
+                imagesData = bList.concat(nList);
+                imagesData.sort(() => Math.random() - 0.5);
+
+                if (imagesData.length < 2) { alert(`선택한 라운드(${selectedRound}강)를 채울 사진이 부족합니다.`); return; }
+
+                switchScreen("gameScreen");
+                buildRoundPairs(imagesData); 
+                loadNextMatch();
+            })
+            .catch(err => { 
+                alert(`게임 준비 중 오류가 발생했습니다.\n상세 내용: ${err.message}`); 
+                console.error(err); 
+            });
+    }
+
+    function buildRoundPairs(pool) {
+        let bList = pool.filter(x => x.type === "빵");
+        let nList = pool.filter(x => x.type === "농");
+        
+        bList.sort(() => Math.random() - 0.5);
+        nList.sort(() => Math.random() - 0.5);
+
+        currentRoundPairs = [];
+        nextRoundPairs = []; 
+
+        while (bList.length > 0 && nList.length > 0) { currentRoundPairs.push([bList.pop(), nList.pop()]); }
+        while (bList.length > 1) { currentRoundPairs.push([bList.pop(), bList.pop()]); }
+        while (nList.length > 1) { currentRoundPairs.push([nList.pop(), nList.pop()]); }
+        if (bList.length === 1) nextRoundPairs.push(bList.pop());
+        if (nList.length === 1) nextRoundPairs.push(nList.pop());
+
+        currentRoundPairs.sort(() => Math.random() - 0.5);
+        currentStageTotal = pool.length;
+    }
+
+    // 캘리브레이션
+    function startCalibration() {
+        if (!vts.authenticated) { alert("시선 보정을 하려면 VTube Studio가 연결되어야 합니다!"); return; }
+        currentCalibIdx = 0;
+        switchScreen("calibScreen");
+        runCalibrationStep();
+    }
+
+    function runCalibrationStep() {
+        if (currentCalibIdx >= calibSteps.length) {
+            localStorage.setItem('vts_calib_9pt', JSON.stringify(calibData));
+            alert("9점 시선 보정이 완료되었습니다!");
+            switchScreen("titleScreen");
+            return;
+        }
+
+        let direction = calibSteps[currentCalibIdx];
+        const dirKo = {
+            TopLeft: "좌측 상단", TopCenter: "중앙 상단", TopRight: "우측 상단",
+            MiddleLeft: "좌측 중앙", Center: "정중앙", MiddleRight: "우측 중앙",
+            BottomLeft: "좌측 하단", BottomCenter: "중앙 하단", BottomRight: "우측 하단"
+        };
+
+        document.getElementById("calibText").innerText = `녹색 원(${dirKo[direction]})을 2초간 응시하세요.`;
+        document.getElementById("calibProgress").innerText = `진행도: ${currentCalibIdx + 1} / 9`;
+
+        let dot = document.getElementById("calibDot");
+        let cx = 50, cy = 50;
+        if (direction.includes("Left")) cx = 10; else if (direction.includes("Right")) cx = 90;
+        if (direction.includes("Top")) cy = 10; else if (direction.includes("Bottom")) cy = 90;
+
+        dot.style.left = `${cx}%`; dot.style.top = `${cy}%`;
+        calibSamplesX = []; calibSamplesY = []; calibStartTime = performance.now();
+    }
+
+    // 게임 매치 로직
+    function loadNextMatch() {
+        if (currentRoundPairs.length === 0) {
+            if (nextRoundPairs.length <= 1) return showWinnerScreen();
+            buildRoundPairs(nextRoundPairs);
+        }
+
+        let pair = currentRoundPairs.shift();
+        leftItem = pair[0]; rightItem = pair[1];
+        
+        let roundText = `${currentStageTotal}강`;
+        if (currentStageTotal === 2) roundText = "결승전";
+        else if (currentStageTotal === 4) roundText = "준결승전";
+        document.getElementById("matchInfo").innerText = roundText;
+
+        document.getElementById("leftImg").src = leftItem.url;
+        document.getElementById("leftName").innerText = leftItem.name;
+        document.getElementById("rightImg").src = rightItem.url;
+        document.getElementById("rightName").innerText = rightItem.name;
+        
+        document.getElementById("leftWrapper").classList.remove("hovered", "winner-focus");
+        document.getElementById("rightWrapper").classList.remove("hovered", "winner-focus");
+        document.getElementById("leftWrapper").style.opacity = '1';
+        document.getElementById("rightWrapper").style.opacity = '1';
+        document.getElementById("vsText").style.opacity = '1';
+        
+        matchStartTime = performance.now();
+        matchFirstLook = { LEFT: false, RIGHT: false };
+        lastLookingDir = "CENTER";
+    }
+
+    function selectWinner(side) {
+        if (isTransitioning) return;
+        isTransitioning = true;
+
+        let winnerItem = (side === 'LEFT') ? leftItem : rightItem;
+        nextRoundPairs.push(winnerItem);
+
+        let winDiv = (side === 'LEFT') ? document.getElementById("leftWrapper") : document.getElementById("rightWrapper");
+        let loseDiv = (side === 'LEFT') ? document.getElementById("rightWrapper") : document.getElementById("leftWrapper");
+        
+        loseDiv.style.opacity = '0';
+        document.getElementById("vsText").style.opacity = '0';
+        winDiv.classList.add("winner-focus");
+
+        setTimeout(() => {
+            isTransitioning = false;
+            loadNextMatch();
+        }, 1200); 
+    }
+
+    function showWinnerScreen() {
+        switchScreen("resultScreen");
+        let winner = nextRoundPairs[0];
+        document.getElementById("winnerImg").src = winner.url;
+        document.getElementById("winnerName").innerText = `${winner.name} (${winner.type})`;
+    }
+
+    // 통계 출력
+    function makeRowHTML(label, valB, valN, isInverse, unit="") {
+        let winB = isInverse ? (parseFloat(valB) < parseFloat(valN)) : (parseFloat(valB) > parseFloat(valN));
+        let winN = isInverse ? (parseFloat(valN) < parseFloat(valB)) : (parseFloat(valN) > parseFloat(valB));
+        let classB = winB ? "highlight" : "";
+        let classN = winN ? "highlight" : "";
+        if (valB === valN) { classB = ""; classN = ""; }
+
+        return `<tr class="data-row">
+            <td>${label}</td>
+            <td class="${classB}">${valB}${unit}</td>
+            <td class="${classN}">${valN}${unit}</td>
+        </tr>`;
+    }
+
+    function makePartsBarHTML(label, st) {
+        let tot = st.parts.face + st.parts.chest + st.parts.legs || 1;
+        let pF = (st.parts.face / tot * 100).toFixed(1);
+        let pC = (st.parts.chest / tot * 100).toFixed(1);
+        let pL = (st.parts.legs / tot * 100).toFixed(1);
+        
+        return `
+        <div class="data-row" style="margin-bottom: 20px;">
+            <div style="font-size: 20px; font-weight: bold; margin-bottom: 8px; color: #2c3e50;">${label}</div>
+            <div style="display: flex; height: 35px; border-radius: 20px; overflow: hidden; font-weight: 800; font-size: 16px; line-height: 35px; color: white; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+                <div style="width: ${pF}%; background: #ff7675; text-align: center;">${pF > 10 ? '얼굴 ' + pF + '%' : ''}</div>
+                <div style="width: ${pC}%; background: #74b9ff; text-align: center;">${pC > 10 ? '가슴 ' + pC + '%' : ''}</div>
+                <div style="width: ${pL}%; background: #55efc4; text-align: center;">${pL > 10 ? '다리 ' + pL + '%' : ''}</div>
+            </div>
+        </div>`;
+    }
+
+    function showStatsScreen() {
+        switchScreen("statsScreen");
+
+        let b = stats['빵'], n = stats['농'];
+        let bVol = b.frameCount ? b.volSum / b.frameCount : 0;
+        let nVol = n.frameCount ? n.volSum / n.frameCount : 0;
+        let bFreq = b.frameCount ? b.freqSum / b.frameCount : 0;
+        let nFreq = n.frameCount ? n.freqSum / n.frameCount : 0;
+        
+        let bTff = b.tffCount ? (b.tffSum / b.tffCount / 1000).toFixed(2) : "0.00";
+        let nTff = n.tffCount ? (n.tffSum / n.tffCount / 1000).toFixed(2) : "0.00";
+        let bAng = b.frameCount ? (b.angleZSum / b.frameCount).toFixed(1) : "0.0";
+        let nAng = n.frameCount ? (n.angleZSum / n.frameCount).toFixed(1) : "0.0";
+
+        let html = `
+        <div id="stamp" class="stamp"></div>
+        <table class="stats-table">
+            <tr><th>무의식 분석 항목</th><th>🍞 빵</th><th>🍼 농</th></tr>
+            ${makeRowHTML("① 시선 체류 시간", (b.time/1000).toFixed(1), (n.time/1000).toFixed(1), false, "초")}
+            ${makeRowHTML("② 최초 시선 도달 시간 (TFF)<br><span style='font-size:14px;color:#aaa;'>(짧을수록 우세)</span>", bTff, nTff, true, "초")}
+            ${makeRowHTML("③ 동공 지진 횟수 (핑퐁)", b.pingPong, n.pingPong, false, "회")}
+            ${makeRowHTML("④ 고개 갸우뚱 각도 (집중도)", bAng, nAng, false, "°")}
+            ${makeRowHTML("⑤ 체류 중 눈 깜빡임<br><span style='font-size:14px;color:#aaa;'>(적을수록 집중함)</span>", b.blink, n.blink, true, "회")}
+            ${makeRowHTML("⑥ 눈썹이 들린 횟수 (반응도)", b.browRaise, n.browRaise, false, "회")}
+            ${makeRowHTML("⑦ 체류 중 웃은 횟수", b.smile, n.smile, false, "회")}
+            ${makeRowHTML("⑧ 평균 목소리 볼륨", bVol.toFixed(2), nVol.toFixed(2), false)}
+            ${makeRowHTML("⑨ 평균 목소리 주파수", bFreq.toFixed(1), nFreq.toFixed(1), false, " Hz")}
+        </table>
+        
+        <div style="background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); margin-top: 20px;">
+            <h3 style="text-align: center; color: #2c3e50; font-size: 26px; margin-top: 0;">👀 부위별 시선 체류 분석</h3>
+            ${makePartsBarHTML("🍞 빵 이미지 관찰 결과", b)}
+            ${makePartsBarHTML("🍼 농 이미지 관찰 결과", n)}
+        </div>
+        `;
+        document.getElementById("statsContent").innerHTML = html;
+
+        let rows = document.querySelectorAll(".data-row");
+        rows.forEach((row, idx) => {
+            setTimeout(() => { row.classList.add("show"); }, 500 * (idx + 1));
+        });
+
+        let tT = b.time + n.time || 1;
+        let tS = b.smile + n.smile || 1;
+        let tB = b.blink + n.blink || 1;
+        let tBR = b.browRaise + n.browRaise || 1;
+        let tV = bVol + nVol || 1;
+        let tF = bFreq + nFreq || 1;
+        let tPP = b.pingPong + n.pingPong || 1;
+        let tTffSum = parseFloat(bTff) + parseFloat(nTff) || 1;
+        let tAng = parseFloat(bAng) + parseFloat(nAng) || 1;
+
+        let sB = (b.time/tT) + (b.smile/tS) + (n.blink/tB) + (b.browRaise/tBR) + (bVol/tV) + (bFreq/tF) + (b.pingPong/tPP) + (parseFloat(nTff)/tTffSum) + (parseFloat(bAng)/tAng);
+        let sN = (n.time/tT) + (n.smile/tS) + (b.blink/tB) + (n.browRaise/tBR) + (nVol/tV) + (nFreq/tF) + (n.pingPong/tPP) + (parseFloat(bTff)/tTffSum) + (parseFloat(nAng)/tAng);
+        
+        let probB = (sB / (sB + sN)) * 100;
+        let probN = (sN / (sB + sN)) * 100;
+
+        let domType = (probB >= probN) ? "빵" : "농";
+        let domProb = Math.max(probB, probN).toFixed(1);
+
+        let stampDelay = 500 * (rows.length + 1);
+        setTimeout(() => {
+            let stamp = document.getElementById("stamp");
+            stamp.innerHTML = `${domType}일 확률<br>${domProb}%`;
+            stamp.style.color = (domType === "빵") ? "#e67e22" : "#3498db";
+            stamp.style.borderColor = (domType === "빵") ? "#e67e22" : "#3498db";
+            stamp.classList.add("animate");
+            document.getElementById("restartBtn").style.opacity = "1";
+        }, stampDelay); 
+    }
+
+    // 메인 루프 
+    const canvas = document.getElementById("trailCanvas");
+    const ctx = canvas.getContext("2d");
+    window.addEventListener("resize", () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; });
+    window.dispatchEvent(new Event("resize"));
+
+    function mapVtsToScreen(vX, vY) {
+        let w = canvas.width, h = canvas.height;
+        let c = calibData;
+        let calibL = (c.TopLeft.x + c.MiddleLeft.x + c.BottomLeft.x) / 3;
+        let calibR = (c.TopRight.x + c.MiddleRight.x + c.BottomRight.x) / 3;
+        let calibU = (c.TopLeft.y + c.TopCenter.y + c.TopRight.y) / 3;
+        let calibD = (c.BottomLeft.y + c.BottomCenter.y + c.BottomRight.y) / 3;
+        
+        let rangeX = calibR - calibL;
+        if (Math.abs(rangeX) < 0.01) rangeX = 0.01 * Math.sign(rangeX || 1);
+        
+        let rangeY = calibD - calibU;
+        if (Math.abs(rangeY) < 0.08) rangeY = 0.08 * Math.sign(rangeY || 1); 
+
+        let normX = (vX - calibL) / rangeX;
+        let normY = (vY - calibU) / rangeY;
+        
+        return { x: Math.max(0, Math.min(w, normX * w)), y: Math.max(0, Math.min(h, normY * h)) };
+    }
+
+    function loop() {
+        try { 
+            let now = performance.now(); let dt = now - lastTrackTime; lastTrackTime = now;
+
+            if (vts.authenticated) {
+                if (smoothX === 0 && vts.eyeX !== 0) { smoothX = vts.eyeX; smoothY = vts.eyeY; }
+                smoothX += (vts.eyeX - smoothX) * smoothingFactor;
+                smoothY += (vts.eyeY - smoothY) * smoothingFactor;
+
+                let screenPos = mapVtsToScreen(smoothX, smoothY);
+                trail.push(screenPos); if (trail.length > 15) trail.shift();
+            } else {
+                trail = []; 
+            }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (appState !== "RESULT" && appState !== "STATS" && vts.authenticated) {
+                trail.forEach((pos, i) => {
+                    let ratio = (i + 1) / trail.length; let r = 4 + (ratio * 8);
+                    ctx.beginPath(); ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+                    if (i === trail.length - 1) {
+                        ctx.fillStyle = "#ff4757"; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = "white"; ctx.stroke();
+                    } else {
+                        ctx.fillStyle = `rgba(255, 107, 129, ${ratio})`; ctx.fill();
+                    }
+                });
+            }
+
+            let eyesClosed = (vts.eyeLOpen < 0.3 && vts.eyeROpen < 0.3);
+            let smile = (vts.mouthSmile > 0.5);
+            let brow = (vts.browY > 0.5);
+            let isNodding = (vts.faceY < -12); 
+
+            if (appState === "CALIB") {
+                let elapsed = (now - calibStartTime) / 1000; 
+                let dot = document.getElementById("calibDot");
+                dot.style.backgroundColor = (Math.floor(elapsed * 10) % 2 === 0) ? "#55efc4" : "#0be881";
+                
+                if (elapsed > 0.3) { calibSamplesX.push(vts.eyeX); calibSamplesY.push(vts.eyeY); }
+                if (elapsed > 2.0) { 
+                    let avgX = calibSamplesX.reduce((a,b)=>a+b,0) / calibSamplesX.length || 0;
+                    let avgY = calibSamplesY.reduce((a,b)=>a+b,0) / calibSamplesY.length || 0;
+                    calibData[calibSteps[currentCalibIdx]] = {x: avgX, y: avgY};
+                    currentCalibIdx++; runCalibrationStep();
+                }
+            } 
+            else if (appState === "GAME" && !isTransitioning) {
+                let lookingDir = "CENTER";
+                
+                if (vts.authenticated && trail.length > 0) {
+                    let latestPos = trail[trail.length - 1];
+                    let currentScreenX = latestPos.x;
+                    let currentScreenY = latestPos.y;
+
+                    if (currentScreenX < canvas.width * 0.45) lookingDir = "LEFT";
+                    else if (currentScreenX > canvas.width * 0.55) lookingDir = "RIGHT";
+
+                    let leftW = document.getElementById("leftWrapper"); 
+                    let rightW = document.getElementById("rightWrapper");
+                    
+                    if (lookingDir === "LEFT") { leftW.classList.add("hovered"); rightW.classList.remove("hovered"); } 
+                    else if (lookingDir === "RIGHT") { leftW.classList.remove("hovered"); rightW.classList.add("hovered"); } 
+                    else { leftW.classList.remove("hovered"); rightW.classList.remove("hovered"); }
+
+                    if (isNodding && !prevNod) {
+                        if (lookingDir === "LEFT") selectWinner('LEFT');
+                        else if (lookingDir === "RIGHT") selectWinner('RIGHT');
+                    }
+
+                    if (lookingDir !== "CENTER") {
+                        let targetType = (lookingDir === "LEFT") ? leftItem.type : rightItem.type;
+                        let st = stats[targetType];
+
+                        if (lookingDir === "LEFT" && !matchFirstLook.LEFT) {
+                            st.tffSum += (now - matchStartTime); st.tffCount += 1; matchFirstLook.LEFT = true;
+                        } else if (lookingDir === "RIGHT" && !matchFirstLook.RIGHT) {
+                            st.tffSum += (now - matchStartTime); st.tffCount += 1; matchFirstLook.RIGHT = true;
+                        }
+
+                        if (lastLookingDir !== "CENTER" && lastLookingDir !== lookingDir) st.pingPong += 1;
+
+                        st.angleZSum += Math.abs(vts.faceZ || 0);
+                        st.time += dt;
+                        st.frameCount += 1;
+                        st.volSum += (vts.voiceVol || 0);
+                        st.freqSum += (vts.voiceFreq || 0);
+
+                        if (eyesClosed && !prevBlink) st.blink += 1;
+                        if (smile && !prevSmile) st.smile += 1;
+                        if (brow && !prevBrow) st.browRaise += 1;
+
+                        let normY = currentScreenY / canvas.height;
+                        if (normY >= 0.2 && normY < 0.4) st.parts.face += dt;
+                        else if (normY >= 0.4 && normY < 0.6) st.parts.chest += dt;
+                        else if (normY >= 0.6 && normY < 0.8) st.parts.legs += dt;
+                    }
+                    lastLookingDir = lookingDir;
+                }
+            }
+            
+            prevBlink = eyesClosed; prevSmile = smile; prevBrow = brow; prevNod = isNodding;
+        } catch (error) {
+            console.error("루프 보호막 작동 중: ", error);
+        }
+        
+        requestAnimationFrame(loop); 
+    }
+
+    function switchScreen(screenId) {
+        appState = screenId.replace("Screen", "").toUpperCase();
+        document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
+        document.getElementById(screenId).classList.add('active');
+    }
+
+    requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>
