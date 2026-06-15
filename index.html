@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>시선 트래킹 이상형 월드컵</title>
+    <title>트릭컬 빵 vs 농 이상형 월드컵</title>
     <style>
         @font-face { font-family: 'Pretendard'; src: local('Malgun Gothic'); }
         body {
@@ -368,36 +368,55 @@
                             if(st) st.style.color = "#2ed573";
                             setInterval(() => {
                                 if(vts.ws.readyState === WebSocket.OPEN) {
-                                    vts.ws.send(JSON.stringify({apiName: "VTubeStudioPublicAPI", apiVersion: "1.0", requestID: "Live2D", messageType: "Live2DParameterListRequest"}));
+                                    vts.ws.send(JSON.stringify({apiName: "VTubeStudioPublicAPI", apiVersion: "1.0", requestID: "Live2D", messageType: "InputParameterListRequest"}));
                                 }
                             }, 1000 / 60);
                         } else { localStorage.removeItem("vts_token"); vts.ws.close(); }
                     }
-                    else if (msg.messageType === "Live2DParameterListResponse") {
-                        let faceX=0, faceY=0, faceZ=0, eyeX=0, eyeY=0, browL=0, browR=0;
-                        msg.data.parameters.forEach(p => {
-                            let n = p.name.toLowerCase(), v = p.value;
-                            if (n === "paramanglex" || n === "anglex") faceX = v;
-                            else if (n === "paramangley" || n === "angley") faceY = v;
-                            else if (n === "paramanglez" || n === "anglez") faceZ = v;
-                            else if (n === "parameyeballx" || n === "eyeballx") eyeX = v;
-                            else if (n === "parameyebally" || n === "eyebally") eyeY = v;
-                            else if (n === "parameyelopen" || n === "eyelopen") vts.eyeLOpen = v;
-                            else if (n === "parameyeropen" || n === "eyeropen") vts.eyeROpen = v;
-                            else if (n === "parammouthsmile" || n === "mouthsmile") vts.mouthSmile = v;
-                            else if (n === "parambrowly" || n === "browlefty") browL = v;
-                            else if (n === "parambrowry" || n === "browrighty") browR = v;
-                            else if (n === "voicevolume") vts.voiceVol = v;
-                            else if (n === "voicefrequency") vts.voiceFreq = v;
-                        });
-                        vts.browY = (browL + browR) / 2.0; vts.faceZ = faceZ; vts.faceY = faceY; 
-                        let baseX = (faceX / 30.0) + eyeX, baseY = (faceY / 30.0) + eyeY;
-                        let zRad = faceZ * (Math.PI / 180.0);
-                        vts.eyeX = baseX * Math.cos(zRad) - baseY * Math.sin(zRad);
-                        vts.eyeY = baseX * Math.sin(zRad) + baseY * Math.cos(zRad);
-                        vts.trackingMode = "수집 및 정밀 추적 중";
-                        if (appState === "TITLE") { let st = document.getElementById("vtsStatus"); if(st) st.innerText = `VTS 통신 정상 [${vts.trackingMode}]`; }
-                    }
+                    else if (msg.messageType === "InputParameterListResponse") {
+    let faceX = 0, faceY = 0, faceZ = 0, eyeX = 0, eyeY = 0, browUp = 0;
+    
+    // VTS 트래커의 기본 파라미터 배열 가져오기
+    let params = msg.data.defaultParameters; 
+    if (msg.data.customParameters) {
+        params = params.concat(msg.data.customParameters);
+    }
+
+    params.forEach(p => {
+        let n = p.name, v = p.value;
+        
+        // 💡 값이 들어올 때 -를 붙여 축 방향을 반전시킵니다.
+        if (n === "FaceAngleX") faceX = -v;      // 고개 좌우 반전
+        else if (n === "FaceAngleY") faceY = -v;  // (만약 고개 위아래도 반대라면 여기도 -v 로 수정)
+        else if (n === "FaceAngleZ") faceZ = v;
+        else if (n === "EyeLeftX") eyeX = v;     // 안구 좌우 (정상)
+        else if (n === "EyeLeftY") eyeY = -v;    // 안구 위아래 반전
+        
+        else if (n === "EyeOpenLeft") vts.eyeLOpen = v;
+        else if (n === "EyeOpenRight") vts.eyeROpen = v;
+        else if (n === "MouthSmile") vts.mouthSmile = v;
+        else if (n === "BrowInnerUp") browUp = v; 
+        else if (n === "VoiceVolume") vts.voiceVol = v;
+        else if (n === "VoiceFrequency") vts.voiceFreq = v;
+    });
+
+    vts.browY = browUp; 
+    vts.faceZ = faceZ; 
+    vts.faceY = faceY; 
+    
+    let baseX = (faceX / 30.0) + eyeX;
+    let baseY = (faceY / 30.0) + eyeY;
+    let zRad = faceZ * (Math.PI / 180.0);
+    
+    vts.eyeX = baseX * Math.cos(zRad) - baseY * Math.sin(zRad);
+    vts.eyeY = baseX * Math.sin(zRad) + baseY * Math.cos(zRad);
+    
+    vts.trackingMode = "수집 및 정밀 추적 중";
+    if (appState === "TITLE") { 
+        let st = document.getElementById("vtsStatus"); 
+        if(st) st.innerText = `VTS 통신 정상 [${vts.trackingMode}]`; 
+    }
+}
                 } catch(err) {} 
             };
             vts.ws.onclose = () => {
