@@ -111,7 +111,7 @@
             100% { transform: translateY(110vh) rotate(720deg) scale(1.5); opacity: 0.8;}
         }
 
-        /* 💡 3x3 구조로 개편된 MVP 화면 CSS */
+        /* MVP 화면 CSS */
         .mvp-grid {
             display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; 
             width: 1100px; max-width: 95%; margin-bottom: 40px;
@@ -171,9 +171,9 @@
     <div id="flashOverlay"></div>
 
     <div id="titleScreen" class="screen active">
-        <div id="vtsStatus" style="color: #ff4757;">VTS 연결 대기 중...</div>
+        <div id="vtsStatus" style="color: #ff4757;">VTS 연결 대기 중... (마우스 시선 대체 모드)</div>
         <div class="title-text">빵 vs 농 월드컵</div>
-        <div class="sub-text">with 아이트레킹</div>
+        <div class="sub-text">with 아이트래킹</div>
         
         <div class="settings-box">
             <span style="font-size: 22px; font-weight: 800; color: #2c3e50;">진행할 라운드: </span>
@@ -286,6 +286,18 @@
         }
     }
 
+    // 💡 전역 마우스 이벤트 및 변수 설정 (시선 대체용)
+    let mouseX = window.innerWidth / 2;
+    let mouseY = window.innerHeight / 2;
+    let isMouseDown = false;
+
+    window.addEventListener('mousemove', (e) => {
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+    });
+    window.addEventListener('mousedown', () => isMouseDown = true);
+    window.addEventListener('mouseup', () => isMouseDown = false);
+
     let appState = "TITLE"; 
     let imagesData = [];
     let currentRoundPairs = [];
@@ -314,7 +326,7 @@
     let isTransitioning = false; 
 
     let vts = { 
-        ws: null, authenticated: false, trackingMode: "연결 안 됨 (마우스 클릭 모드)", 
+        ws: null, authenticated: false, trackingMode: "연결 안 됨 (마우스 시선 대체 모드)", 
         eyeX: 0, eyeY: 0, eyeLOpen: 1, eyeROpen: 1,
         mouthSmile: 0, browY: 0, voiceVol: 0, voiceFreq: 0, faceZ: 0, faceY: 0
     };
@@ -337,7 +349,6 @@
     let calibSamplesX = [], calibSamplesY = [];
     let calibStartTime = 0;
 
-    // VTS 통신 
     function connectVTS() {
         try {
             vts.ws = new WebSocket("ws://localhost:8001");
@@ -392,14 +403,13 @@
             vts.ws.onclose = () => {
                 vts.authenticated = false;
                 let st = document.getElementById("vtsStatus");
-                if(st) { st.style.color = "#ff4757"; st.innerText = "VTS 연결 대기 중..."; }
+                if(st) { st.style.color = "#ff4757"; st.innerText = "VTS 연결 대기 중... (마우스 시선 대체 모드)"; }
                 setTimeout(connectVTS, 3000);
             };
         } catch(e) { setTimeout(connectVTS, 3000); }
     }
     connectVTS();
 
-    // 게임 시작
     function startGame() {
         if(audioCtx.state === 'suspended') audioCtx.resume(); 
 
@@ -431,7 +441,6 @@
                 matchHistory = [];
                 charStats = {};
                 imagesData.forEach(item => {
-                    // 💡 부위별 통계(parts) 속성 초기화
                     if (!charStats[item.name]) charStats[item.name] = { name: item.name, totalGaze: 0, parts: { face: 0, chest: 0, legs: 0 } };
                 });
 
@@ -459,7 +468,7 @@
     }
 
     function startCalibration() {
-        if (!vts.authenticated) { alert("시선 보정을 하려면 VTube Studio가 연결되어야 합니다!"); return; }
+        if (!vts.authenticated) { alert("마우스 대체 모드에서는 시선 보정이 필요하지 않습니다!"); return; }
         currentCalibIdx = 0; switchScreen("calibScreen"); runCalibrationStep();
     }
 
@@ -483,7 +492,6 @@
         calibSamplesX = []; calibSamplesY = []; calibStartTime = performance.now();
     }
 
-    // 게임 매치 로직
     function loadNextMatch() {
         if (currentRoundPairs.length === 0) {
             if (nextRoundPairs.length <= 1) return showWinnerScreen();
@@ -546,9 +554,6 @@
         playWinnerSound(); shootConfetti();
     }
 
-    // ----------------------------------------------------
-    // 💡 9개의 카드로 확장된 오버워치 스타일 MVP 화면
-    // ----------------------------------------------------
     function showMvpScreen() {
         switchScreen("mvpScreen");
         
@@ -561,7 +566,6 @@
         let maxGazeC = allChars.reduce((p, c) => (p.totalGaze > c.totalGaze) ? p : c);
         let minGazeC = allChars.reduce((p, c) => (p.totalGaze < c.totalGaze) ? p : c);
         
-        // 💡 부위별 MVP 추출
         let maxCheekC = allChars.reduce((p, c) => (p.parts.face > c.parts.face) ? p : c);
         let maxChestC = allChars.reduce((p, c) => (p.parts.chest > c.parts.chest) ? p : c);
         let maxLegsC = allChars.reduce((p, c) => (p.parts.legs > c.parts.legs) ? p : c);
@@ -574,7 +578,6 @@
             </div>
         `;
         
-        // 총 9개 배치
         let html = `
             ${createCard("평균 고민 시간", (avgDur/1000).toFixed(2)+"초", "매치당 평균 소요 시간")}
             ${createCard("가장 오래 고민한 사도", maxDurM.winnerName, "매치 소요 시간: "+(maxDurM.duration/1000).toFixed(2)+"초")}
@@ -597,9 +600,6 @@
         });
     }
 
-    // ----------------------------------------------------
-    // 통계 화면
-    // ----------------------------------------------------
     function makeRowHTML(label, valB, valN, isInverse, unit="") {
         let winB = isInverse ? (parseFloat(valB) < parseFloat(valN)) : (parseFloat(valB) > parseFloat(valN));
         let winN = isInverse ? (parseFloat(valN) < parseFloat(valB)) : (parseFloat(valN) > parseFloat(valB));
@@ -680,7 +680,6 @@
         }, stampDelay); 
     }
 
-    // 메인 루프 
     const canvas = document.getElementById("trailCanvas");
     const ctx = canvas.getContext("2d");
     window.addEventListener("resize", () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; });
@@ -704,6 +703,7 @@
         try { 
             let now = performance.now(); let dt = now - lastTrackTime; lastTrackTime = now;
 
+            // 💡 VTS 미연결 시 마우스 커서 위치를 시선 궤적으로 추적
             if (vts.authenticated) {
                 if (smoothX === 0 && vts.eyeX !== 0) { smoothX = vts.eyeX; smoothY = vts.eyeY; }
                 smoothX += (vts.eyeX - smoothX) * smoothingFactor;
@@ -711,10 +711,14 @@
 
                 let screenPos = mapVtsToScreen(smoothX, smoothY);
                 trail.push(screenPos); if (trail.length > 15) trail.shift();
-            } else { trail = []; }
+            } else { 
+                trail.push({ x: mouseX, y: mouseY }); 
+                if (trail.length > 15) trail.shift();
+            }
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            if (appState !== "RESULT" && appState !== "MVP" && appState !== "STATS" && vts.authenticated) {
+            // 💡 마우스 모드에서도 빨간 점 렌더링 유지
+            if (appState !== "RESULT" && appState !== "MVP" && appState !== "STATS") {
                 trail.forEach((pos, i) => {
                     let ratio = (i + 1) / trail.length; let r = 4 + (ratio * 8);
                     ctx.beginPath(); ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
@@ -724,8 +728,10 @@
                 });
             }
 
-            let eyesClosed = (vts.eyeLOpen < 0.3 && vts.eyeROpen < 0.3);
-            let smile = (vts.mouthSmile > 0.5); let brow = (vts.browY > 0.5);
+            // 💡 마우스 좌클릭을 눈 깜빡임(Blink)으로 완벽 대체
+            let eyesClosed = vts.authenticated ? (vts.eyeLOpen < 0.3 && vts.eyeROpen < 0.3) : isMouseDown;
+            let smile = vts.authenticated ? (vts.mouthSmile > 0.5) : false; 
+            let brow = vts.authenticated ? (vts.browY > 0.5) : false;
 
             if (appState === "CALIB") {
                 let elapsed = (now - calibStartTime) / 1000; 
@@ -743,7 +749,7 @@
             else if (appState === "GAME" && !isTransitioning) {
                 let lookingDir = "CENTER";
                 
-                if (vts.authenticated && trail.length > 0) {
+                if (trail.length > 0) {
                     let latestPos = trail[trail.length - 1];
                     let currentScreenX = latestPos.x; let currentScreenY = latestPos.y;
 
@@ -756,16 +762,10 @@
                     else if (lookingDir === "RIGHT") { leftW.classList.remove("hovered"); rightW.classList.add("hovered"); } 
                     else { leftW.classList.remove("hovered"); rightW.classList.remove("hovered"); }
 
-                    if (eyesClosed && !prevBlink) {
-                        if (lookingDir === "LEFT") selectWinner('LEFT');
-                        else if (lookingDir === "RIGHT") selectWinner('RIGHT');
-                    }
-
                     if (lookingDir !== "CENTER") {
                         let targetItem = (lookingDir === "LEFT") ? leftItem : rightItem;
                         let st = stats[targetItem.type];
 
-                        // 💡 사도별 누적 시선 시간 업데이트
                         if (!charStats[targetItem.name]) charStats[targetItem.name] = { name: targetItem.name, totalGaze: 0, parts: { face: 0, chest: 0, legs: 0 } };
                         charStats[targetItem.name].totalGaze += dt;
 
@@ -782,7 +782,6 @@
                         if (brow && !prevBrow) st.browRaise += 1;
 
                         let normY = currentScreenY / canvas.height;
-                        // 💡 사도별 부위 누적
                         if (normY >= 0.2 && normY < 0.4) { st.parts.face += dt; charStats[targetItem.name].parts.face += dt; }
                         else if (normY >= 0.4 && normY < 0.6) { st.parts.chest += dt; charStats[targetItem.name].parts.chest += dt; }
                         else if (normY >= 0.6 && normY < 0.8) { st.parts.legs += dt; charStats[targetItem.name].parts.legs += dt; }
